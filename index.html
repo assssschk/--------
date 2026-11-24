@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>для тебя</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; min-height: 100%; background: #07070f; }
+  body {
+    display: flex; flex-direction: column; align-items: center;
+    min-height: 100vh; padding: 16px 16px 40px; box-sizing: border-box;
+    background: radial-gradient(ellipse at 50% 20%, #15122a 0%, #07070f 75%) fixed;
+    font-family: "JetBrains Mono", "Fira Code", Consolas, "Courier New", monospace;
+  }
+  .wrap { margin: auto; display: flex; flex-direction: column; align-items: center; }
+  canvas { filter: brightness(1.12) saturate(1.2); width: max(260px, min(92vw, 480px, calc((100vh - 250px) * .797))); height: auto; display: block; }
+  .cap { text-align: center; color: #fff; font-weight: 700; margin-top: 4px; min-height: 84px; }
+  .cap .name { font-size: clamp(28px, 8vw, 40px); text-shadow: 0 0 16px rgba(200,170,255,.5); }
+  .cap .love { font-size: clamp(15px, 4.2vw, 20px); margin-top: 8px; text-shadow: 0 0 12px rgba(200,170,255,.4); }
+  .cur { display: inline-block; width: .6ch; margin-left: 2px; background: #fff; animation: bl 1s steps(1) infinite; }
+  @keyframes bl { 50% { opacity: 0; } }
+  .hearts { width: 264px; display: flex; flex-wrap: wrap; align-content: flex-start; margin-top: 6px; }
+  .hearts svg { width: 24px; height: 24px; flex: none; padding: 4px; box-sizing: border-box; fill: #fff;
+    filter: drop-shadow(0 0 4px rgba(210,190,255,.7)); animation: pop .5s ease-out; }
+  @keyframes pop { from { opacity: 0; transform: scale(.3); } to { opacity: 1; transform: scale(1); } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <canvas id="c"></canvas>
+  <div class="cap"><div class="name" id="n"></div><div class="love" id="l"></div></div>
+  <div class="hearts" id="h"></div>
+</div>
+
+<script>
+(function () {
+  var COLS = 62, ROWS = 50, CW = 9, CH = 14, W = COLS * CW, H = ROWS * CH;
+  var cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  var dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = W * dpr; cv.height = H * dpr;
+  ctx.scale(dpr, dpr);
+  ctx.font = 'bold 13px "JetBrains Mono","Fira Code",Consolas,"Courier New",monospace';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+
+  var JX = 262, JOIN_Y = 500;
+  // тюльпаны: первые в списке рисуются поверх остальных
+  // R - половина высоты бутона, tf - наклон среднего лепестка, sl/sr - раскрытие боковых лепестков
+  var tulips = [
+    { x: 300, y: 322, R: 58, ph: .5,  tf: .05,  sl: .30, sr: .20 },
+    { x: 352, y: 364, R: 42, ph: .2,  tf: -.04, sl: .24, sr: .34 },
+    { x: 196, y: 292, R: 46, ph: 1.9, tf: -.06, sl: .22, sr: .38 },
+    { x: 146, y: 336, R: 34, ph: 3.7, tf: .07,  sl: .36, sr: .18 },
+    { x: 404, y: 268, R: 54, ph: 3.2, tf: .07,  sl: .35, sr: .18 },
+    { x: 454, y: 330, R: 34, ph: 2.3, tf: -.04, sl: .25, sr: .30 },
+    { x: 262, y: 208, R: 62, ph: 2.6, tf: 0,    sl: .28, sr: .30 },
+    { x: 110, y: 242, R: 36, ph: 4.4, tf: .08,  sl: .40, sr: .22 },
+    { x: 470, y: 204, R: 42, ph: 5.6, tf: -.05, sl: .20, sr: .34 },
+    { x: 366, y: 140, R: 50, ph: 4.0, tf: .06,  sl: .30, sr: .24 },
+    { x: 168, y: 152, R: 34, ph: .9,  tf: -.07, sl: .34, sr: .20 },
+    { x: 296, y: 78,  R: 42, ph: 1.4, tf: .04,  sl: .24, sr: .36 },
+    { x: 342, y: 232, R: 36, ph: 1.2, tf: -.03, sl: .26, sr: .28 }
+  ];
+  // закрытые бутоны: слева один, справа два
+  var buds = [
+    { x: 78,  y: 330, a: -.9, L: 40, w: 15, ph: 1.0 },
+    { x: 500, y: 120, a: .7,  L: 42, w: 15, ph: 2.5 },
+    { x: 505, y: 272, a: 1.1, L: 34, w: 12, ph: 3.9 }
+  ];
+  // длинные изогнутые листья тюльпанов: основание, изгиб (mx,my), кончик (x1,y1)
+  var leaves = [
+    { mx: 170, my: 440, x1: 66,  y1: 338, w: 24, ph: .3 },
+    { mx: 205, my: 400, x1: 138, y1: 290, w: 15, ph: 4.1 },
+    { mx: 335, my: 445, x1: 470, y1: 372, w: 22, ph: 1.4 },
+    { mx: 385, my: 425, x1: 520, y1: 296, w: 15, ph: 2.2 },
+    { mx: 296, my: 415, x1: 396, y1: 330, w: 14, ph: 5.0 },
+    { mx: 130, my: 480, x1: 38,  y1: 430, w: 17, ph: 1.0 }
+  ];
+  var tails = [[-17, 612], [-5, 640], [9, 626], [24, 600]];
+  // сердечки вокруг букета (из знаков): x, y, размер
+  var hearts = [
+    { x: 70,  y: 72,  S: 32, ph: 0 },
+    { x: 490, y: 58,  S: 25, ph: 2 },
+    { x: 66,  y: 590, S: 40, ph: 4 },
+    { x: 476, y: 590, S: 34, ph: 1 },
+    { x: 504, y: 452, S: 27, ph: 3 }
+  ];
+  var RAMP = '.:+*&%#@';
+  var sd = 0, ss = 0;
+
+  function seg(px, py, x0, y0, x1, y1) {
+    var vx = x1 - x0, vy = y1 - y0;
+    var s = ((px - x0) * vx + (py - y0) * vy) / (vx * vx + vy * vy);
+    s = s < 0 ? 0 : s > 1 ? 1 : s;
+    sd = Math.hypot(px - x0 - vx * s, py - y0 - vy * s); ss = s;
+  }
+  function hash(a, b) { var h = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return h - Math.floor(h); }
+  function clampL(v, lo) { return v < lo ? lo : v > 97 ? 97 : v; }
+
+  // положение и наклон каждого тюльпана в текущий момент
+  function updateTulips(t) {
+    for (var i = 0; i < tulips.length; i++) {
+      var f = tulips[i];
+      f.hx = f.x + Math.sin(t * 1.1 + f.ph) * 6;
+      f.hy = f.y + Math.sin(t * 1.6 + f.ph) * 3;
+      var a = Math.atan2(f.hx - JX, JOIN_Y - f.hy) * .75 + f.tf + Math.sin(t * .7 + f.ph) * .06;
+      f.ca = Math.cos(a); f.sa = Math.sin(a);
+      f.bx = f.hx - .95 * f.R * f.sa; f.by = f.hy + .95 * f.R * f.ca;
+    }
+  }
+
+  // лепесток-«линза»: острый кончик сверху, уже у основания
+  var pu = 0, pv = 0, pw = 0;
+  function petal(lx, ly, cx, cy, ang, Lh, Wp) {
+    var dx = lx - cx, dy = ly - cy, sn = Math.sin(ang), cs = Math.cos(ang);
+    var u = -dx * sn + dy * cs, v = dx * cs + dy * sn;
+    var s = u / Lh;
+    if (s < -1 || s > 1) return false;
+    var w = Wp * (1 - s * s) * (1 - .25 * s);
+    pu = s; pv = v; pw = w;
+    return w > 0 && Math.abs(v) <= w;
+  }
+
+  function sample(px, py, t) {
+    var i, f, dx, dy;
+
+    // белые тюльпаны
+    for (i = 0; i < tulips.length; i++) {
+      f = tulips[i];
+      var dx0 = px - f.hx, dy0 = py - f.hy, R = f.R;
+      if (dx0 > R * 1.3 || dx0 < -R * 1.3 || dy0 > R * 1.3 || dy0 < -R * 1.3) continue;
+      var lx = dx0 * f.ca + dy0 * f.sa, ly = dx0 * f.sa - dy0 * f.ca;
+      var which = 0;
+      if (petal(lx, ly, 0, -.02 * R, f.tf, 1.0 * R, .5 * R)) which = 1;
+      else if (petal(lx, ly, -.36 * R, 0, f.sl, .92 * R, .46 * R)) which = 2;
+      else if (petal(lx, ly, .36 * R, -.02 * R, -f.sr, .92 * R, .46 * R)) which = 3;
+      if (!which) continue;
+
+      var vv = pv / pw, s = pu;
+      var lit = .5 - (dx0 * .6 + dy0 * .8) / (R * 1.6);
+      lit = lit < 0 ? 0 : lit > 1 ? 1 : lit;
+      var sh = Math.sin(t * 2 + (dx0 + dy0) * .05 + f.ph);
+      var base = which === 1 ? 88 : 78;
+      var L = base + 10 * lit - 5 * vv * vv + 2 * sh;
+      var hue = 320 + 20 * Math.sin(f.ph), sat = 16;
+      if (s < -.45) { hue = 120; sat = 22; L -= 4; }            // зеленоватое основание бутона
+      if (s > .9) return ['o', 'hsl(' + hue + ',10%,' + clampL(L + 6, 0) + '%)'];
+      var av = vv < 0 ? -vv : vv;
+      if (av > .84) return [lx < (which === 1 ? 0 : which === 2 ? -.36 * R : .36 * R) ? '(' : ')', 'hsl(270,16%,' + clampL(L - 22, 40) + '%)'];
+      if (which === 1 && av < .06 && s > -.3) return [':', 'hsl(270,14%,' + clampL(L - 14, 42) + '%)'];
+      var idx = Math.floor((clampL(L, 0) - 36) / 8); idx = idx < 0 ? 0 : idx > 7 ? 7 : idx;
+      return [RAMP.charAt(idx), 'hsl(' + hue + ',' + sat + '%,' + clampL(L, 0) + '%)'];
+    }
+
+    // бутоны
+    for (i = 0; i < buds.length; i++) {
+      var b = buds[i];
+      var ba = b.a + Math.sin(t * 1.0 + b.ph) * .1;
+      dx = px - (b.x + Math.sin(t * 1.1 + b.ph) * 5); dy = py - b.y;
+      var ux = dx * Math.cos(ba) + dy * Math.sin(ba), uy = -dx * Math.sin(ba) + dy * Math.cos(ba);
+      var q = (ux / b.L) * (ux / b.L) + (uy / b.w) * (uy / b.w);
+      if (q < 1) {
+        if (ux > b.L * .25) return [ux > 0 && uy > 0 ? '/' : '\\', 'hsl(135,62%,' + (42 + 14 * (1 - q)) + '%)'];
+        return [q > .75 ? 'o' : (uy > 0 ? '%' : '#'), 'hsl(330,18%,' + (78 + 18 * (1 - q)) + '%)'];
+      }
+    }
+
+    // лента: перекошенная, с бантом сбоку
+    var bandY = 519 + .13 * (px - JX) + 3 * Math.sin(px / 30 + t * 2);
+    var kx = JX + 22, ky = 514;
+    var tA = Math.sin(t * 2) * 4, tB = Math.sin(t * 2 + 1.3) * 3;
+    seg(px, py, kx, ky + 4, kx - 30 + tA, 572);
+    if (sd < 5.5) return ['/', 'hsl(274,72%,' + (44 + 10 * Math.sin(py / 9 + t * 3)) + '%)'];
+    seg(px, py, kx - 30 + tA, 572, kx - 56 + tA * 1.5, 632);
+    if (sd < 5.5) return ['/', 'hsl(274,72%,' + (44 + 10 * Math.sin(py / 9 + t * 3)) + '%)'];
+    seg(px, py, kx, ky + 4, kx + 26 + tB, 556);
+    if (sd < 5) return ['\\', 'hsl(274,72%,' + (48 + 10 * Math.sin(py / 9 + t * 3)) + '%)'];
+    seg(px, py, kx + 26 + tB, 556, kx + 18 + tB, 596);
+    if (sd < 5) return ['|', 'hsl(274,72%,' + (48 + 10 * Math.sin(py / 9 + t * 3)) + '%)'];
+    var loops = [
+      { cx: kx - 16, cy: 497 + Math.sin(t * 2) * 3, rx: 36, ry: 17, a: -.55 },
+      { cx: kx + 36, cy: 508 + Math.sin(t * 2 + 1) * 2, rx: 25, ry: 13, a: .28 }
+    ];
+    for (i = 0; i < 2; i++) {
+      var lp = loops[i];
+      dx = px - lp.cx; dy = py - lp.cy;
+      var vx = dx * Math.cos(lp.a) + dy * Math.sin(lp.a), vy = -dx * Math.sin(lp.a) + dy * Math.cos(lp.a);
+      var qq = (vx / lp.rx) * (vx / lp.rx) + (vy / lp.ry) * (vy / lp.ry);
+      if (qq < 1 && qq > .3) return ['#', 'hsl(276,72%,' + (44 + 16 * (1 - qq)) + '%)'];
+    }
+    if (Math.hypot(px - kx, py - ky) < 11) return ['@', 'hsl(280,78%,64%)'];
+    if (px > JX - 44 && px < JX + 34 && Math.abs(py - bandY) < 11) return ['=', 'hsl(272,70%,' + (42 + 10 * Math.sin(px / 14 + t * 2)) + '%)'];
+
+    // длинные листья тюльпанов
+    for (i = 0; i < leaves.length; i++) {
+      var lf = leaves[i];
+      var tx = lf.x1 + Math.sin(t * 1.2 + lf.ph) * 8, ty = lf.y1 + Math.sin(t * 1.6 + lf.ph) * 4;
+      var mx = lf.mx + Math.sin(t * 1.2 + lf.ph) * 4, my = lf.my;
+      seg(px, py, JX, 495, mx, my);
+      var d1 = sd, s1 = ss;
+      seg(px, py, mx, my, tx, ty);
+      var d = d1 < sd ? d1 : sd, sp = d1 < sd ? s1 * .5 : .5 + ss * .5;
+      var wid = lf.w * Math.pow(Math.sin(Math.PI * sp), .7);
+      if (d < wid) return [tx < JX ? '/' : '\\', 'hsl(' + (150 + 15 * sp) + ',65%,' + (36 + 22 * (1 - d / wid)) + '%)'];
+    }
+    // стебли тюльпанов
+    for (i = 0; i < tulips.length; i++) {
+      f = tulips[i];
+      seg(px, py, JX, JOIN_Y, f.bx, f.by);
+      if (sd < 3.4) {
+        var slope = (f.bx - JX) / (JOIN_Y - f.by);
+        return [Math.abs(slope) < .25 ? '|' : (slope < 0 ? '/' : '\\'), 'hsl(140,62%,54%)'];
+      }
+    }
+    for (i = 0; i < buds.length; i++) {
+      seg(px, py, JX, JOIN_Y, buds[i].x, buds[i].y + 25);
+      if (sd < 2.8) return [buds[i].x < JX ? '/' : '\\', 'hsl(135,62%,48%)'];
+    }
+    for (i = 0; i < tails.length; i++) {
+      seg(px, py, JX, JOIN_Y, JX + tails[i][0], tails[i][1]);
+      if (sd < 3) return ['|', 'hsl(130,62%,46%)'];
+    }
+
+    // сердечки на той же сетке знаков, что и цветы: полые, только толстый контур с объёмом
+    for (i = 0; i < hearts.length; i++) {
+      var h = hearts[i];
+      var pulse = 1 + .05 * Math.sin(t * 2.4 + h.ph) + .1 * Math.pow(Math.max(0, Math.sin(t * 2.4 + h.ph)), 8);
+      var hx = h.x + Math.sin(t * .8 + h.ph) * 7, hy = h.y + Math.sin(t * 1.1 + h.ph * 1.7) * 9;
+      var uS = h.S * pulse, nx = (px - hx) / uS, ny = -(py - hy) / uS;
+      if (nx > 1.05 || nx < -1.05 || ny > 1.05 || ny < -1.05) continue;
+      var x = nx * 1.15, y = ny * 1.15 + .1;
+      var a2 = x * x + y * y - 1, F = a2 * a2 * a2 - x * x * y * y * y;
+      if (F > 0) continue;
+      var gx = 6 * x * a2 * a2 - 2 * x * y * y * y, gy = 6 * y * a2 * a2 - 3 * x * x * y * y;
+      var depth = (-F / (Math.sqrt(gx * gx + gy * gy) + 1e-6)) * uS / 1.15;
+      var hl = .5 + (-nx * .5 + ny * .5) * .5, hs = Math.sin(t * 3 + (px + py) * .04 + h.ph);
+      if (depth <= 9) {
+        var kk = depth / 9;
+        return [kk < .3 ? '@' : kk < .65 ? '#' : '%', 'hsl(280,18%,' + clampL(54 + 14 * hl + 3 * hs - 8 * kk, 0) + '%)'];
+      }
+      if (h.S >= 34 && depth > 14 && depth < 17) return ['.', 'hsl(280,20%,' + clampL(44 + 14 * hl, 0) + '%)'];
+    }
+    return null;
+  }
+
+  // звёздочки-крестики: мерцают, то вспыхивают крестом, то гаснут в точку
+  var STAR_COLORS = ['0,0%,96%', '270,80%,86%', '215,95%,86%', '330,70%,90%'];
+  var stars = [], starMap = new Array(COLS * ROWS);
+  updateTulips(0);
+  for (var n = 0; n < 160 && stars.length < 30; n++) {
+    var si = Math.floor(hash(n, 1.7) * (COLS - 6)) + 3, sj = Math.floor(hash(n, 4.3) * (ROWS - 6)) + 3;
+    if (sample(si * CW + CW / 2, sj * CH + CH / 2, 0)) continue;
+    stars.push({ i: si, j: sj, ph: hash(n, 9.1) * 6.28, sp: .8 + hash(n, 2.2) * 1.6, c: STAR_COLORS[n % 4] });
+  }
+  function put(i, j, ch, col) {
+    if (i >= 0 && i < COLS && j >= 0 && j < ROWS) starMap[j * COLS + i] = [ch, col];
+  }
+  function updateStars(t) {
+    for (var q = 0; q < starMap.length; q++) starMap[q] = null;
+    for (var s = 0; s < stars.length; s++) {
+      var st = stars[s], p = (Math.sin(t * st.sp + st.ph) + 1) / 2, k;
+      var lvl = p > .86 ? 3 : p > .62 ? 2 : p > .3 ? 1 : 0;
+      if (lvl === 0) { put(st.i, st.j, '.', 'hsla(' + st.c + ',.45)'); continue; }
+      if (lvl >= 2) {
+        var hl = lvl === 3 ? 3 : 1, vl = lvl === 3 ? 2 : 1;
+        for (k = 1; k <= hl; k++) { var a = (1 - (k - 1) * .3) * .75; put(st.i - k, st.j, '-', 'hsla(' + st.c + ',' + a + ')'); put(st.i + k, st.j, '-', 'hsla(' + st.c + ',' + a + ')'); }
+        for (k = 1; k <= vl; k++) { var b = (1 - (k - 1) * .3) * .75; put(st.i, st.j - k, '|', 'hsla(' + st.c + ',' + b + ')'); put(st.i, st.j + k, '|', 'hsla(' + st.c + ',' + b + ')'); }
+      }
+      put(st.i, st.j, lvl === 3 ? '*' : '+', 'hsla(' + st.c + ',1)');
+    }
+  }
+
+  var start = performance.now(), capStarted = false;
+  var SYM = '01<>/{}=;#';
+
+  function frame(now) {
+    var t = (now - start) / 1000;
+    var rf = (now - start) / 80 - 1;
+    var fr = Math.floor(rf), part = rf - fr;
+    ctx.clearRect(0, 0, W, H);
+    updateTulips(t);
+    updateStars(t);
+    for (var j = 0; j < ROWS; j++) {
+      if (j > fr) break;
+      var py = j * CH + CH / 2;
+      for (var i = 0; i < COLS; i++) {
+        var px = i * CW + CW / 2;
+        if (j === fr && i > part * COLS) {
+          if (sample(px, py, t) || hash(i, j) > .97) {
+            ctx.fillStyle = 'rgba(200,170,255,.5)';
+            ctx.fillText(SYM.charAt(Math.floor(Math.random() * SYM.length)), px, py);
+          }
+          continue;
+        }
+        var s = sample(px, py, t) || starMap[j * COLS + i];
+        if (s) { ctx.fillStyle = s[1]; ctx.fillText(s[0], px, py); }
+        else {
+          var hh = hash(i, j);
+          if (hh > .985 && Math.sin(t * 2 + hh * 90) > .3) { ctx.fillStyle = 'rgba(230,215,255,.7)'; ctx.fillText(hh > .993 ? '*' : '.', px, py); }
+        }
+      }
+    }
+    if (!capStarted && rf > ROWS + 1) { capStarted = true; typeCaption(); }
+    requestAnimationFrame(frame);
+  }
+
+  var HEART = '<svg viewBox="0 0 24 24"><path d="M12 21.5C5 15.8 2 12.6 2 8.7 2 5.9 4.2 3.8 6.9 3.8c1.9 0 3.7 1 5.1 3 1.4-2 3.2-3 5.1-3C19.8 3.8 22 5.9 22 8.7c0 3.9-3 7.1-10 12.8z"/></svg>';
+
+  // сердечки внизу печатаются бесконечно, ряды уходят вниз; страница следует за ними,
+  // пока не прокрутить вверх
+  function startHearts() {
+    var h = document.getElementById('h');
+    setInterval(function () {
+      var de = document.documentElement;
+      var atBottom = window.innerHeight + window.scrollY >= de.scrollHeight - 80;
+      h.insertAdjacentHTML('beforeend', HEART);
+      if (atBottom) window.scrollTo({ top: de.scrollHeight, behavior: 'smooth' });
+    }, 450);
+  }
+
+  function typeCaption() {
+    var n = document.getElementById('n'), l = document.getElementById('l');
+    var t1 = 'жаным', t2 = 'я тебя очень люблююююю';
+    var cur = document.createElement('span'); cur.className = 'cur'; cur.innerHTML = '&nbsp;';
+    var i = 0, phase = 0;
+    n.appendChild(cur);
+    var timer = setInterval(function () {
+      if (phase === 0) {
+        i++; n.textContent = t1.slice(0, i); n.appendChild(cur);
+        if (i >= t1.length) { phase = 1; i = 0; l.appendChild(cur); }
+      } else {
+        i++; l.textContent = t2.slice(0, i); l.appendChild(cur);
+        if (i >= t2.length) { clearInterval(timer); setTimeout(startHearts, 500); }
+      }
+    }, 110);
+  }
+
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
